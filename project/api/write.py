@@ -22,6 +22,8 @@ from django.contrib.auth.decorators import user_passes_test
 from django.contrib.sites.shortcuts import get_current_site
 
 # civi packages
+from rest_framework.decorators import api_view
+
 from api.forms import UpdateProfileImage
 from api.models import Thread
 from api.tasks import send_mass_email
@@ -360,95 +362,88 @@ def editUser(request):
 
 
 @login_required
+@api_view(['POST'])
 def uploadProfileImage(request):
-    if request.method == "POST":
-        form = UpdateProfileImage(request.POST, request.FILES)
-        if form.is_valid():
-            try:
-                account = Account.objects.get(user=request.user)
-
-                # Clean up previous image
-                account.profile_image.delete()
-
-                # Upload new image and set as profile picture
-                account.profile_image = form.clean_profile_image()
-                try:
-                    account.save()
-                except Exception as e:
-                    response = {"message": str(e), "error": "MODEL_SAVE_ERROR"}
-                    return JsonResponse(response, status=400)
-
-                request.session["login_user_image"] = account.profile_image_thumb_url
-
-                response = {"profile_image": account.profile_image_url}
-                return JsonResponse(response, status=200)
-            except Exception as e:
-                response = {"message": str(e), "error": "MODEL_ERROR"}
-                return JsonResponse(response, status=400)
-        else:
-            response = {"message": form.errors["profile_image"], "error": "FORM_ERROR"}
-            return JsonResponse(response, status=400)
-
-    else:
-        return HttpResponseForbidden("allowed only via POST")
-
-
-@login_required
-def clearProfileImage(request):
-    if request.method == "POST":
+    form = UpdateProfileImage(request.POST, request.FILES)
+    if form.is_valid():
         try:
             account = Account.objects.get(user=request.user)
 
             # Clean up previous image
             account.profile_image.delete()
-            account.save()
 
-            return HttpResponse("Image Deleted")
-        except Exception:
-            return HttpResponseServerError(reason=str("default"))
+            # Upload new image and set as profile picture
+            account.profile_image = form.clean_profile_image()
+            try:
+                account.save()
+            except Exception as e:
+                response = {"message": str(e), "error": "MODEL_SAVE_ERROR"}
+                return JsonResponse(response, status=400)
+
+            request.session["login_user_image"] = account.profile_image_thumb_url
+
+            response = {"profile_image": account.profile_image_url}
+            return JsonResponse(response, status=200)
+        except Exception as e:
+            response = {"message": str(e), "error": "MODEL_ERROR"}
+            return JsonResponse(response, status=400)
     else:
-        return HttpResponseForbidden("allowed only via POST")
+        response = {"message": form.errors["profile_image"], "error": "FORM_ERROR"}
+        return JsonResponse(response, status=400)
 
 
 @login_required
+@api_view(['POST'])
+def clearProfileImage(request):
+    try:
+        account = Account.objects.get(user=request.user)
+
+        # Clean up previous image
+        account.profile_image.delete()
+        account.save()
+
+        return HttpResponse("Image Deleted")
+    except Exception:
+        return HttpResponseServerError(reason=str("default"))
+
+
+@login_required
+@api_view(['POST'])
 def uploadCiviImage(request):
-    if request.method == "POST":
-        r = request.POST
-        civi_id = r.get("civi_id")
-        if not civi_id:
-            return HttpResponseBadRequest(reason="Invalid Civi Reference")
+    r = request.POST
+    civi_id = r.get("civi_id")
+    if not civi_id:
+        return HttpResponseBadRequest(reason="Invalid Civi Reference")
 
-        try:
-            c = Civi.objects.get(id=civi_id)
+    try:
+        c = Civi.objects.get(id=civi_id)
 
-            attachment_links = request.POST.getlist("attachment_links[]")
+        attachment_links = request.POST.getlist("attachment_links[]")
 
-            if attachment_links:
-                for img_link in attachment_links:
-                    result = urllib.urlretrieve(img_link)
-                    img_file = File(open(result[0]))
-                    if check_image_with_pil(img_file):
-                        civi_image = CiviImage(title="", civi=c, image=img_file)
-                        civi_image.save()
-
-            if len(request.FILES) != 0:
-                for image in request.FILES.getlist("attachment_image"):
-                    civi_image = CiviImage(title="", civi=c, image=image)
+        if attachment_links:
+            for img_link in attachment_links:
+                result = urllib.urlretrieve(img_link)
+                img_file = File(open(result[0]))
+                if check_image_with_pil(img_file):
+                    civi_image = CiviImage(title="", civi=c, image=img_file)
                     civi_image.save()
 
-            data = {
-                "attachments": [
-                    {"id": img.id, "image_url": img.image_url} for img in c.images.all()
-                ],
-            }
-            return JsonResponse(data)
+        if len(request.FILES) != 0:
+            for image in request.FILES.getlist("attachment_image"):
+                civi_image = CiviImage(title="", civi=c, image=image)
+                civi_image.save()
 
-        except Exception as e:
-            return HttpResponseServerError(
-                reason=(str(e) + civi_id + str(request.FILES))
-            )
-    else:
-        return HttpResponseForbidden("allowed only via POST")
+        data = {
+            "attachments": [
+                {"id": img.id, "image_url": img.image_url} for img in c.images.all()
+            ],
+        }
+        return JsonResponse(data)
+
+    except Exception as e:
+        return HttpResponseServerError(
+            reason=(str(e) + civi_id + str(request.FILES))
+        )
 
 
 def check_image_with_pil(image_file):
@@ -460,45 +455,43 @@ def check_image_with_pil(image_file):
 
 
 @login_required
+@api_view(['POST'])
 def uploadThreadImage(request):
-    if request.method == "POST":
-        r = request.POST
-        thread_id = r.get("thread_id")
-        if not thread_id:
-            return HttpResponseBadRequest(reason="Invalid Thread Reference")
+    r = request.POST
+    thread_id = r.get("thread_id")
+    if not thread_id:
+        return HttpResponseBadRequest(reason="Invalid Thread Reference")
 
-        try:
-            thread = Thread.objects.get(id=thread_id)
-            remove = r.get("remove", "")
-            img_link = r.get("link", "")
-            if remove:
-                thread.image.delete()
+    try:
+        thread = Thread.objects.get(id=thread_id)
+        remove = r.get("remove", "")
+        img_link = r.get("link", "")
+        if remove:
+            thread.image.delete()
+            thread.save()
+
+        elif img_link:
+            thread.image.delete()
+            result = urllib.urlretrieve(img_link)
+            img_file = File(open(result[0]))
+            if check_image_with_pil(img_file):
+                thread.image = img_file
                 thread.save()
+            # else:
+            #     return HttpResponseBadRequest("Invalid Image")
+        else:
+            # Clean up previous image
+            thread.image.delete()
 
-            elif img_link:
-                thread.image.delete()
-                result = urllib.urlretrieve(img_link)
-                img_file = File(open(result[0]))
-                if check_image_with_pil(img_file):
-                    thread.image = img_file
-                    thread.save()
-                # else:
-                #     return HttpResponseBadRequest("Invalid Image")
-            else:
-                # Clean up previous image
-                thread.image.delete()
+            # Upload new image and set as profile picture
+            thread.image = request.FILES["attachment_image"]
+            thread.save()
 
-                # Upload new image and set as profile picture
-                thread.image = request.FILES["attachment_image"]
-                thread.save()
+        data = {"image": thread.image_url}
+        return JsonResponse(data)
 
-            data = {"image": thread.image_url}
-            return JsonResponse(data)
-
-        except Exception as e:
-            return HttpResponseServerError(reason=(str(e)))
-    else:
-        return HttpResponseForbidden("allowed only via POST")
+    except Exception as e:
+        return HttpResponseServerError(reason=(str(e)))
 
 
 @login_required
